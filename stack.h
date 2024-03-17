@@ -7,10 +7,11 @@
 
 enum {
     BASE_TYPE_INT, BASE_TYPE_FLOAT, BASE_TYPE_CHAR, BASE_TYPE_MSG, // short message [64]
-    BASE_TYPE_ARRAY,
+    //~ BASE_TYPE_ARRAY,
 
     BASE_TYPES
 };
+
 typedef uint8_t type_t; // 127 max
 const type_t type_cap = 1u << 7;
 const uint64_t BASE_TYPE_NONE = -1;
@@ -18,7 +19,7 @@ const uint64_t BASE_TYPE_NONE = -1;
 #define TYPE(type) ( (type) & ~type_cap )
 #define CAP(type) ( (type) & type_cap )
 
-size_t type_size[BASE_TYPES] = {
+const size_t type_size[BASE_TYPES] = {
     sizeof(int32_t), sizeof(double), sizeof(int8_t), sizeof(char[64])
 };
 
@@ -41,7 +42,7 @@ typedef struct {
 typedef struct {
     type_t type;
     union {
-        char b[64]; int32_t char_v[16];
+        char b[64]; char char_v[64];
 
         int16_t h[32];
         int32_t i[16]; int32_t int_v[16];

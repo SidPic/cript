@@ -3,89 +3,108 @@
 
 #include "stack.h"
 
-#define void_as(type, var) ( *((type*)(var)) )
-
-#define val_as(type) void_as(type, val)
 #define val_type TYPE(gettype(val))
 #define val_size type_size[val_type]
+#define val_tuple astype(tuple2, val)
+#define val_list ((void**)(val))
+#define val_arg  astype(void*, val)
+
+#define vtype(vptr) TYPE(gettype(vptr))
+#define astype(type, vptr) (*((type*)(vptr)))
+#define astuple(vptr) astype(tuple2, vptr)
+
+#define FUNCS(name)     name##_int, name##_double, name##_char
+#define ALL_FUNCS(name) FUNCS, name##_msg
+
+/* D E S C R I P T I O N
+ *
+ * general func:
+ *  void* var -> void* result
+ *  stack_top.value = result->value
+ *  stack_top.type = result->type
+ *
+ * sub func:
+ *  any args -> void* result
+ *
+ * */
+
 
 /* STR */
 
-typedef void* (*func_t) (void*);
 
-const char* str_fmt[] = {
-    "%i", "%f", "%c"
-};
-
-void* str_base(void* val) {
-    stack_top->type = BASE_TYPE_MSG;
-
-    snprintf(stack_top->b, 64, str_fmt[val_type], val_as(int64_t));
-
-    return stack_top->b;
+#define str_func(_type, fmt)                                                             \
+char* str_##_type(void* val) {                                                           \
+    snprintf(stack_top->char_v, 64, fmt, astype(_type, val));                            \
+    return stack_top->char_v;                                                            \
 }
+str_func(int,    "%i")
+str_func(double, "%f")
+str_func(char,   "%c")
+#undef str_func
 
-void* str_msg(void* val) {
+char* str_msg(void* val) {
     return strncpy(stack_top->b, val, 64);
 }
 
-func_t str_func[BASE_TYPES] = {
-    str_base, str_base, str_base, str_msg
-};
+typedef char* (*str_func_t) (void*);
 
+str_func_t str_func[BASE_TYPES] = { FUNCS(str), str_msg };
 
-const char* str(void* val) {
+void* str(void* val) {
+    stack_top->type = BASE_TYPE_MSG;
     return str_func[val_type](val);
 }
 
-/* SUB */
 
-#define sub_base(__type, id)                                                             \
-void* sub_##__type(void* val) {                                                          \
-    stack_top->type = BASE_TYPE_##id;                                                    \
-    stack_top->__type##_v[0] = void_as(__type, val_as(tuple2).v1) - void_as(__type, val_as(tuple2).v2);\
-    return stack_top->__type##_v;                                                        \
-}
-sub_base(int, INT)
-sub_base(double, FLOAT)
-sub_base(char, CHAR)
-#undef sub_base
+/* OPERATIONS */
 
-func_t sub_func[BASE_TYPES] = {
-    sub_int, sub_double, sub_char
-};
 
-void* sub(void* val) {
-    return sub_func[TYPE(gettype(val_as(tuple2).v1))](val);
+#define op_func(name, _type, op)                                                         \
+void* name##_##_type(void* val, void* other) {                                           \
+    *stack_top->_type##_v = astype(_type, val) op astype(_type, other);                  \
+    return stack_top->_type##_v;                                                         \
 }
 
-/* ADD */
+typedef void* (*op_func_t) (void*, void*);
+#define op_funcs FUNCS
+#define func_arr(name) op_func_t name##_func[BASE_TYPES] = { op_funcs(name) };
 
-#define add_base(__type, id)                                                             \
-void* add_##__type(void* val) {                                                          \
-    stack_top->type = BASE_TYPE_##id;                                                    \
-    void_as(__type, val_as(tuple2).v1) += void_as(__type, val_as(tuple2).v2);            \
-    return (*(__type**)stack_top->__type##_v) = val_as(tuple2).v1;                       \
+#define gen_func(name)                                                                   \
+void* name(void* val) {                                                                  \
+    stack_top->type = vtype(val_tuple.v1);                                               \
+    return name##_func[stack_top->type](val_tuple.v1, val_tuple.v2);                     \
 }
-add_base(int, INT)
-add_base(double, FLOAT)
-add_base(char, CHAR)
-#undef add_base
 
-func_t add_func[BASE_TYPES] = {
-    add_int, add_double, add_char
-};
+#define arr_genf(name) func_arr(name) gen_func(name)
 
-void* add(void* val) {
-    return add_func[TYPE(gettype(val_as(tuple2).v1))](val);
-}
+#define op_group(_type)                                                                  \
+op_func(sum, _type, +)        op_func(add, _type, +=)                                    \
+op_func(diff, _type, -)       op_func(sub, _type, -=)                                    \
+op_func(quot, _type, /)       op_func(div, _type, /=)                                    \
+op_func(prod, _type, *)       op_func(mult, _type, *=)
+
+op_group(int)
+op_group(char)
+op_group(double)
+
+arr_genf(sum)   arr_genf(add)
+arr_genf(diff)  arr_genf(sub)
+arr_genf(quot)  arr_genf(div)
+arr_genf(prod)  arr_genf(mult)
+
+#undef op_func
+#undef op_group
+#undef op_funcs
+#undef func_arr
+#undef gen_func
 
 
 /* SAY */
 
+
 void* say(void* val) {
-    while (val_as(void*)) {
-        fputs(str(val_as(void*)), stdout);
+    while (val_arg) {
+        fputs(str(val_arg), stdout);
         val += sizeof(void*);
     }
 
