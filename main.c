@@ -26,11 +26,6 @@ void* xmalloc (size_t size)
     return value;
 }
 
-typedef struct {
-    char func_name[64];
-    char args[7][64];
-} expression;
-
 static struct obstack exprs;
 
 typedef char cmd[64];
@@ -39,29 +34,51 @@ static struct obstack commands;
 #define BUF_SIZE 256
 #define DELIMS " \n\t"
 
-char* parse_priority(char* str) {
-    if (str == NULL) return NULL;
-    if (*str == '\0' || *str == '\n') return NULL;
+//~ size_t exprlen(const char* str) {
+    //~ size_t len = 0;
+    //~ while (*str && *str != ')') ++len, ++str;
+    //~ return len;
+//~ }
 
-    while (*str && *str != '(') ++str;
-    if (*str != '(') return NULL;
-    ++str;
+//~ char* parse_priority(char* str) {
+    //~ if (str == NULL) return NULL;
+    //~ if (*str == '\0' || *str == '\n' || *str == ')') return NULL;
 
-    char* begin = str-1;
-    char buf[256]; buf[0] = ' '; buf[1] = '('; int len = 2;
+    //~ while (*str && *str != '(') ++str;
+    //~ if (*str != '(') return NULL;
+    //~ ++str;
 
-    while (*str && *str != ')' && *str != '\n') {
-        if (*str == '(') {
-            str = parse_priority(str);
-            continue;
-        }
+    //~ char* begin = str-1;
+    //~ char buf[256]; int len;
+    //~ if ((*str - 3) != ' ') {
+        //~ buf[0] = ' ';
+        //~ buf[1] = *(str-3);
+        //~ buf[2] = ' ';
+        //~ buf[3] = '(';
+        //~ len = 4;
+    //~ } else {
+        //~ buf[0] = ' ';
+        //~ buf[1] = '(';
+        //~ len = 2;
+    //~ }
+    //~ int shift = len;
 
-        buf[len++] = *str++;
-    };
-    buf[len++] = *str++;
+    //~ while (*str && *str != ')' && *str != '\n') {
+        //~ if (*str == '(') {
+            //~ str = parse_priority(str);
+            //~ continue;
+        //~ }
 
-    return mempcpy(mempcpy(begin, str+1, strlen(str)-2), buf, len);
-}
+        //~ buf[len++] = *str++;
+    //~ };
+    //~ buf[len++] = *str++;
+
+    //~ return mempcpy(mempcpy(begin, str+1, exprlen(str)-2), buf, len);
+//~ }
+
+#define L_BRACKET (cmd){[0] = '(', [1] = '\0'}
+#define R_BRACKET (cmd){[0] = ')', [1] = '\0'}
+#define END (cmd){[0] = 'E', [1] = 'N', [2] = 'D', [3] = '\0'}
 
 const char* parse_brackets(const char* str) {
 again:
@@ -70,19 +87,28 @@ again:
     while (isspace(*str)) ++str;
 
     if (*str == '\0') return NULL;
-    if (*str == ')') return str+1;
+    if (*str == ')') {
+        obstack_grow(&exprs, L_BRACKET, sizeof(cmd));
+        return str+1;
+    }
     if (*str == '(') {
         str = parse_brackets(++str);
+        obstack_grow(&exprs, R_BRACKET, sizeof(cmd));
         goto again;
     }
 
     cmd buf; char *ptr = buf;
 
-    while (*str && !isspace(*str) && *str != ')') *ptr++ = *str++; *ptr++ = '\0';
+    while (*str && !isspace(*str) && *str != ')') *ptr++ = *str++; *ptr = '\0';
 
-    str = parse_brackets(++str);
+    if (str && *str == ')') {
+        obstack_grow(&exprs, L_BRACKET, sizeof(cmd));
+    }
+
+    str = parse_brackets(str);
 
     obstack_grow(&exprs, buf, sizeof(cmd));
+
 
     return str;
 }
@@ -104,25 +130,45 @@ void parse_infix(cmd* command) {
     }
 }
 
+void parse_priority(cmd* command) {
+
+}
+
 /*
  * func -> pop args -> put result => run func
  * otherwise -> put args          => put arg
+ *
+ * pop извлекает аргументы в правильном порядке!
+ *
+ * func {
+ * val = pop()
+ * if (type == cmd) -> return cmd(val, func())
+ * else -> return val;
+ * }
+ *
+ * END-> очищает стэк, использованный командой
  */
 
 void* parse_file(FILE* file) {
     obstack_blank(&exprs, 0);
-    char buf[BUF_SIZE];
+    char* buf = (char*)malloc(BUF_SIZE);
+    size_t size = BUF_SIZE;
+    size_t readed = 0;
 
-    while (fgets(buf, BUF_SIZE, file)) {
-        parse_priority(buf);
-        puts(buf);
-        parse_brackets(buf);
+    while ((readed = getline(&buf, &size, file)) != -1) {
+        if (*buf && *buf != '\n') {
+            parse_brackets(buf);
+            obstack_grow(&exprs, END, sizeof(cmd));
+        }
     }
+
+    free(buf);
 
     exprs_size = obstack_object_size(&exprs);
     cmd* commands = obstack_finish(&exprs);
 
-    parse_infix(commands);
+    parse_priority(commands);
+    //~ parse_infix(commands);
 
     return commands;
 }
