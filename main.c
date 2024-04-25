@@ -27,9 +27,7 @@ void* xmalloc (size_t size)
 }
 
 static struct obstack exprs;
-
 typedef char cmd[64];
-static struct obstack commands;
 
 #define BUF_SIZE 256
 #define DELIMS " \n\t"
@@ -78,7 +76,13 @@ static struct obstack commands;
 
 #define L_BRACKET (cmd){[0] = '(', [1] = '\0'}
 #define R_BRACKET (cmd){[0] = ')', [1] = '\0'}
-#define END (cmd){[0] = 'E', [1] = 'N', [2] = 'D', [3] = '\0'}
+#define END       (cmd){[0] = ';', [1] = '\0'}
+#define COMMA     (cmd){[0] = ',', [1] = '\0'}
+
+/*
+ * сделать "запятую", считать кол-во аргументов
+ * но пока зачем....?
+ */
 
 const char* parse_brackets(const char* str) {
 again:
@@ -87,6 +91,17 @@ again:
     while (isspace(*str)) ++str;
 
     if (*str == '\0') return NULL;
+    if (*str == ',') {
+        str = parse_brackets(++str);
+        obstack_grow(&exprs, COMMA, sizeof(cmd));
+        goto again;
+    }
+    if (str[0] == ')' && str[1] == ',') {
+        str = parse_brackets(str+2);
+        obstack_grow(&exprs, COMMA, sizeof(cmd));
+        obstack_grow(&exprs, L_BRACKET, sizeof(cmd));
+        goto again;
+    }
     if (*str == ')') {
         obstack_grow(&exprs, L_BRACKET, sizeof(cmd));
         return str+1;
@@ -99,13 +114,9 @@ again:
 
     cmd buf; char *ptr = buf;
 
-    while (*str && !isspace(*str) && *str != ')') *ptr++ = *str++; *ptr = '\0';
+    while (*str && !isspace(*str) && *str != ')' && *str != ',') *ptr++ = *str++; *ptr = '\0';
 
-    if (str && *str == ')') {
-        obstack_grow(&exprs, L_BRACKET, sizeof(cmd));
-    }
-
-    str = parse_brackets(str);
+    for (str = parse_brackets(str); str && *str == ')'; str = parse_brackets(str));
 
     obstack_grow(&exprs, buf, sizeof(cmd));
 
@@ -118,13 +129,20 @@ int isinfix(const char* str) {
     return str[0] == '+' || str[0] == '-' || str[0] == '*' || str[0] == '/';
 }
 
+void swap(cmd c1, cmd c2) {
+    cmd tmp; memcpy(tmp, c1, sizeof(cmd));
+    memcpy(c1, c2, sizeof(cmd));
+    memcpy(c2, tmp, sizeof(cmd));
+}
+
 void parse_infix(cmd* command) {
-    for (int i = 0; i < exprs_size; ++i) {
-        if (isinfix(command[i])) {
-            char buf[64];
-            strcpy(buf, command[i+1]);
-            strcpy(command[i+1], command[i]);
-            strcpy(command[i], buf);
+    for (int i = 0; i < exprs_size / sizeof(cmd); ++i) {
+        if (isinfix(command[i]) && !isinfix(command[i+1])
+        && (*command[i-1] != ')' || isinfix(command[i+2]))
+        && !isinfix(command[i-1])
+        && *command[i+1] != ')'
+        ) {
+            swap(command[i], command[i+1]);
             ++i;
         }
     }
@@ -146,7 +164,8 @@ void parse_priority(cmd* command) {
  * else -> return val;
  * }
  *
- * END-> очищает стэк, использованный командой
+ * END ";" -> очищает стэк, использованный командой (но pop тоже освобождает!),
+ * но END очищает результат выполнения основной команды
  */
 
 void* parse_file(FILE* file) {
@@ -156,7 +175,8 @@ void* parse_file(FILE* file) {
     size_t readed = 0;
 
     while ((readed = getline(&buf, &size, file)) != -1) {
-        if (*buf && *buf != '\n') {
+        if (*buf && *buf != '\n' && *buf != '#') {
+            //~ pre_parse(buf); // расставить скобки arg1 - команда-или нет
             parse_brackets(buf);
             obstack_grow(&exprs, END, sizeof(cmd));
         }
@@ -167,8 +187,8 @@ void* parse_file(FILE* file) {
     exprs_size = obstack_object_size(&exprs);
     cmd* commands = obstack_finish(&exprs);
 
-    parse_priority(commands);
-    //~ parse_infix(commands);
+    //~ parse_priority(commands);
+    parse_infix(commands);
 
     return commands;
 }
@@ -181,7 +201,7 @@ int main() {
     fclose(file);
 
     for (int i = 0; i < exprs_size / sizeof(cmd); ++i) {
-        puts(es[i]);
+        printf("\e[7m%2.i\e[0m %s\n", i, es[i]);
     }
 
     return 0;
